@@ -1,12 +1,7 @@
 
 module SMACCMPilot.Datalink.Client where
 
-import Control.Monad
-import Control.Concurrent (threadDelay)
-import Text.Printf
 import Pipes
-import System.Random
-import System.IO
 import System.Exit
 
 import SMACCMPilot.Datalink.Client.Async
@@ -15,124 +10,81 @@ import SMACCMPilot.Datalink.Client.Console
 import SMACCMPilot.Datalink.Client.Queue
 import SMACCMPilot.Datalink.Client.Serial
 import SMACCMPilot.Datalink.Client.Pipes
-import SMACCMPilot.Datalink.Client.ByteString
+import SMACCMPilot.Datalink.Mode
 
-import Data.ByteString.Char8 (ByteString)
+import           Data.ByteString.Char8 (ByteString)
 import qualified Data.ByteString.Char8 as B
+import qualified Data.ByteString.Internal as B (w2c)
+import SMACCMPilot.Commsec.SymmetricKey
 import SMACCMPilot.Commsec.Sizes
-import SMACCMPilot.Commsec.Keys
-
-frameLoopbackClient :: Options -> IO ()
-frameLoopbackClient opts = do
-  console <- newConsole opts
-
-  (ser_out_push, ser_out_pop) <- newQueue
-  (ser_in_push, ser_in_pop)   <- newQueue
-
-  serialServer opts console ser_in_push ser_out_pop
-
-  (out_frame_push, out_frame_pop) <- newQueue
-  (in_frame_push, in_frame_pop) <- newQueue
-
-  _ <- asyncRunEffect console "serial in"
-          $ popProducer ser_in_pop
-        >-> hxDecoder
-        >-> frameLog
-        >-> untagger 0
-        >-> pushConsumer in_frame_push
-
-  a <- asyncRunEffect console "serial out"
-           $ popProducer out_frame_pop
-         >-> tagger 0
-         >-> frameLog
-         >-> hxEncoder
-         >-> pushConsumer ser_out_push
-
-  cts <- replicateM 20 (randomBytestring cyphertextSize)
-  r <- checkLoopback cts out_frame_push in_frame_pop 100
-  o <- getConsoleOutput console
-  putStrLn o
-  case r of
-    True -> putStrLn "Success!">> exitSuccess >> return ()
-    False -> exitFailure >> return ()
-  -- Unreachable - prevents exception that serial in and serial out
-  -- are blocked forever
-  wait a
-
-commsecLoopbackClient :: Options -> SymmetricKey -> IO ()
-commsecLoopbackClient opts sk = do
-  console <- newConsole opts
-
-  (ser_out_push, ser_out_pop) <- newQueue
-  (ser_in_push, ser_in_pop)   <- newQueue
-
-  serialServer opts console ser_in_push ser_out_pop
-
-  (out_frame_push, out_frame_pop) <- newQueue
-  (in_frame_push, in_frame_pop) <- newQueue
-
-  _ <- asyncRunEffect console "serial in"
-          $ popProducer ser_in_pop
-        >-> hxDecoder
-        >-> frameLog
-        >-> untagger 0
-        >-> commsecDecoder (s2c_ks sk)
-        >-> pushConsumer in_frame_push
-
-  a <- asyncRunEffect console "serial out"
-           $ popProducer out_frame_pop
-         >-> commsecEncoder (c2s_ks sk)
-         >-> tagger 0
-         >-> frameLog
-         >-> hxEncoder
-         >-> pushConsumer ser_out_push
-
-  cts <- replicateM 20 (randomBytestring plaintextSize)
-  r <- checkLoopback cts out_frame_push in_frame_pop 100
-  o <- getConsoleOutput console
-  putStrLn o
-  case r of
-    True -> putStrLn "Success!">> exitSuccess >> return ()
-    False -> exitFailure >> return ()
-
-  -- Unreachable - keeps a reference alive in order to prevent exception that
-  -- serial in and serial out are STM blocked forever after serialserver closes.
-  wait a
 
 
-
-checkLoopback :: [ByteString] -- Frames to send
-              -> Pushable ByteString
-              -> Poppable ByteString
-              -> Int -- delay between frames, in milliseconds
-              -> IO Bool
-checkLoopback inputs in_q out_q d = do
-  putStrLn (printf "Checking loopback: %d frames, %d ms betwen frames" (length inputs) d)
-  forM_ os $ \(_ix, fc) -> do
-    putStrLn ("sending: " ++ bytestringShowHex fc)
-    queuePush in_q fc
-    threadDelay (1000*d)
-
-  rs <- forM os $ \(ix, fc) -> do
-    p <- queueTryPop out_q
-    case p of
-      Nothing -> hPutStrLn stderr (printf "no response for frame %d" ix)
-        >> return False
-      Just fc' -> case fc' == fc of
-        False -> hPutStrLn stderr
-          (printf ("incorrect response for frame %d:\n expected %s\ngot %s")
-                  ix
-                  (bytestringShowHex fc)
-                  (bytestringShowHex fc'))
-          >> return False
-        True -> return True
-  return (and rs)
+datalinkClient :: Options
+               -> DatalinkMode
+               -> (Pushable ByteString -> Poppable ByteString -> Console -> IO ())
+               -> IO ()
+datalinkClient opts dmode client = case dmode of
+  PlaintextMode ->
+    aux (aRunPipe "unpadder" (unpadder plaintextSize))
+        (aRunPipe "padder" (padder cyphertextSize))
+  SymmetricCommsecMode DatalinkClient sk ->
+    aux (aRunPipe "sym decoder" (commsecDecoder (keyToBS (sk_s2c sk))))
+        (aRunPipe "sym encoder" (commsecEncoder (keyToBS (sk_c2s sk))))
+  SymmetricCommsecMode _ _ -> error "not implementing symmetric commsec datalink server right now"
+  KeyExchangeMode _ _ _ _ -> error "key exchange mode unsupported"
   where
-  os :: [(Int, ByteString)]
-  os = zip [0..] inputs
+  aux decoder encoder = do
+    putStrLn ("Datalink client starting in " ++ mode)
+    console <- newConsolePrinter opts
 
-randomBytestring :: Integer -> IO ByteString
-randomBytestring len = do
-  bs <- replicateM (fromIntegral len) randomIO
-  return (B.pack bs)
+    (ser_in_pop, ser_out_push) <- serialServer opts console
+
+    (ct_out_frame_push, ct_out_frame_pop) <- newQueue
+    (pt_unpad_out_frame_push, pt_unpad_out_frame_pop) <- newQueue
+    (pt_out_frame_push, pt_out_frame_pop) <- newQueue
+    (ct_in_frame_push, ct_in_frame_pop) <- newQueue
+    (pt_in_frame_push, pt_in_frame_pop) <- newQueue
+
+    i <- aRunPipe "serial in" ser_in_pipe console
+          ser_in_pop ct_in_frame_push
+
+    d <- decoder console ct_in_frame_pop pt_in_frame_push
+
+    p <- aRunPipe "pt padder" (padder plaintextSize) console
+          pt_unpad_out_frame_pop pt_out_frame_push
+
+    e <- encoder console pt_out_frame_pop ct_out_frame_push
+
+    o <- aRunPipe "serial out" ser_out_pipe console
+          ct_out_frame_pop ser_out_push
+
+    client pt_unpad_out_frame_push pt_in_frame_pop console
+    mapM_ wait [i, d, p, e, o]
+    exitSuccess
+
+  aRunPipe name p console pop_chan push_chan =
+    asyncRunEffect console name $
+      popProducer pop_chan >-> p >-> pushConsumer push_chan
+
+  ser_out_pipe = tagger 0
+             >-> frameLog
+             >-> hxEncoder
+             >-> bytestringLog "raw"
+
+  ser_in_pipe = bytestringLog "raw"
+            >-> hxDecoder
+            >-> frameLog
+            >-> untagger 0
+
+  keyToBS = B.pack . map B.w2c
+  mode = case dmode of
+    PlaintextMode -> "plaintext mode"
+    SymmetricCommsecMode DatalinkClient _ ->
+      "symmetric commsec client mode"
+    SymmetricCommsecMode DatalinkServer _ ->
+      "symmetric commsec server mode"
+    KeyExchangeMode DatalinkClient _ _ _ ->
+      "key exchange commsec client mode"
+    KeyExchangeMode DatalinkServer _ _ _ ->
+      "key exchange commsec server mode"
 

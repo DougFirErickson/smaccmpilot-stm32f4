@@ -11,77 +11,124 @@ cabal-version:       >=1.10
 library
   hs-source-dirs:      src
   exposed-modules:     SMACCMPilot.INS.Ivory,
+                       SMACCMPilot.INS.SensorFusion,
                        SMACCMPilot.INS.Simulate,
                        SMACCMPilot.INS.Tower,
-                       SMACCMPilot.INS.Tests.SensorFusion
+                       SMACCMPilot.INS.Tests.SensorFusion,
+                       SMACCMPilot.INS.Tests.AllSensorsIvory,
+                       SMACCMPilot.INS.Bias.Calibration,
+                       SMACCMPilot.INS.Bias.Gyro,
+                       SMACCMPilot.INS.Bias.Gyro.Estimator,
+                       SMACCMPilot.INS.Bias.Gyro.Tower,
+                       SMACCMPilot.INS.Bias.Magnetometer,
+                       SMACCMPilot.INS.Bias.Magnetometer.Diversity,
+                       SMACCMPilot.INS.Bias.Magnetometer.Estimator,
+                       SMACCMPilot.INS.Bias.Magnetometer.Tower,
+                       SMACCMPilot.INS.Bias.Magnetometer.Types,
+                       SMACCMPilot.INS.Bias.Magnetometer.Test,
+                       SMACCMPilot.INS.Filter,
+                       SMACCMPilot.INS.Filter.Filter,
+                       SMACCMPilot.INS.Filter.Butterworth,
+                       SMACCMPilot.INS.Filter.RunningAverage,
+                       SMACCMPilot.INS.Filter.Test
   other-modules:       SMACCMPilot.INS.Parameters,
+                       SMACCMPilot.INS.Quaternion,
                        SMACCMPilot.INS.Types
   build-depends:       base >=4.6,
                        ad >=4.2,
+                       distributive >=0.4,
                        estimator == 1.1.*,
+                       filepath,
                        ivory >=0.1,
+                       ivory-artifact >=0.1,
                        ivory-px4-hw >=0.1,
                        ivory-serialize >=0.1,
                        ivory-stdlib >=0.1,
+                       ivory-backend-c >=0.1,
                        lens >=4.6,
-                       linear >=1.16 && <1.17,
+                       linear >=1.16 && <1.19,
                        monadLib >= 3.7,
                        reflection >=1.5,
                        tower >=0.9,
+                       tower-hal,
                        ivory-bsp-stm32,
-                       smaccm-datalink
+                       ivory-px4-hw,
+                       smaccm-datalink,
+                       smaccm-comm-schema-tower
   default-language:    Haskell2010
-  ghc-options:         -Wall -Werror
+  ghc-options:         -Wall
 
-executable riseborough-recording-test-native
+-- executable riseborough-recording-test-native
+--   hs-source-dirs:      tests
+--   main-is:             RiseboroughTest.hs
+--   build-depends:       base >=4.6,
+--                        estimator == 1.1.*,
+--                        lens >=4.6,
+--                        linear >=1.15,
+--                        monadLib >= 3.7,
+--                        smaccm-ins
+--   default-language:    Haskell2010
+--   ghc-options:         -Wall -Werror
+--
+-- executable psas-recording-test-native
+--   hs-source-dirs:      tests
+--   main-is:             PSASNative.hs
+--   build-depends:       base >=4.6,
+--                        binary >=0.7,
+--                        bytestring >=0.10,
+--                        estimator == 1.1.*,
+--                        monadLib >= 3.7,
+--                        smaccm-ins
+--   default-language:    Haskell2010
+--   ghc-options:         -Wall -Werror
+--
+-- executable psas-recording-test-gen
+--   hs-source-dirs:      tests
+--   main-is:             PSASIvory.hs
+--   build-depends:       base >=4.6,
+--                        estimator == 1.1.*,
+--                        ivory >=0.1,
+--                        ivory-artifact >=0.1,
+--                        ivory-backend-c >=0.1,
+--                        smaccm-ins
+--   default-language:    Haskell2010
+--   ghc-options:         -Wall -Werror
+
+
+executable all-sensors-ins-test-gen
   hs-source-dirs:      tests
-  main-is:             RiseboroughTest.hs
+  main-is:             AllSensorsIvory.hs
   build-depends:       base >=4.6,
-                       estimator == 1.1.*,
-                       lens >=4.6,
-                       linear >=1.15,
-                       monadLib >= 3.7,
                        smaccm-ins
   default-language:    Haskell2010
-  ghc-options:         -Wall -Werror
-
-executable psas-recording-test-native
-  hs-source-dirs:      tests
-  main-is:             PSASNative.hs
-  build-depends:       base >=4.6,
-                       binary >=0.7,
-                       bytestring >=0.10,
-                       estimator == 1.1.*,
-                       monadLib >= 3.7,
-                       smaccm-ins
-  default-language:    Haskell2010
-  ghc-options:         -Wall -Werror
-
-executable psas-recording-test-gen
-  hs-source-dirs:      tests
-  main-is:             PSASIvory.hs
-  build-depends:       base >=4.6,
-                       estimator == 1.1.*,
-                       ivory >=0.1,
-                       ivory-artifact >=0.1,
-                       ivory-backend-c >=0.1,
-                       smaccm-ins
-  default-language:    Haskell2010
-  ghc-options:         -Wall -Werror
+  ghc-options:         -Wall
 
 executable px4-sensor-fusion-test-gen
   hs-source-dirs:      tests
   main-is:             PX4SensorFusionTest.hs
   build-depends:       base >=4.6,
                        estimator == 1.1.*,
-                       ivory >=0.1,
-                       ivory-artifact >=0.1,
-                       ivory-backend-c >=0.1,
                        tower,
                        tower-config,
                        tower-freertos-stm32,
-                       ivory-bsp-stm32,
                        ivory-px4-hw,
                        smaccm-ins
   default-language:    Haskell2010
   ghc-options:         -Wall -Werror
+
+executable ins-filter-test-gen
+  hs-source-dirs:      tests
+  main-is:             Filter.hs
+  build-depends:       base >=4.6,
+                       smaccm-ins
+  default-language:    Haskell2010
+  ghc-options:         -Wall
+
+executable ins-mag-bias-test-gen
+  hs-source-dirs:      tests
+  main-is:             MagBias.hs
+  build-depends:       base >=4.6,
+                       smaccm-ins
+  default-language:    Haskell2010
+  ghc-options:         -Wall
+

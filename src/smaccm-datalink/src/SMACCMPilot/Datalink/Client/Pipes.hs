@@ -2,6 +2,8 @@
 module SMACCMPilot.Datalink.Client.Pipes where
 
 import           Data.ByteString.Char8 (ByteString)
+import qualified Data.ByteString.Char8 as B
+import           Data.ByteString.Internal (c2w)
 import           Data.Word
 import           Text.Printf
 
@@ -13,7 +15,7 @@ import SMACCMPilot.Datalink.Client.ByteString
 
 import qualified SMACCMPilot.Datalink.HXStream.Native as HX
 import SMACCMPilot.Commsec.Sizes
-import SMACCMPilot.Commsec.Native
+import GEC.Datagram.Pure
 
 word8Log :: String -> Pipe Word8 Word8 GW ()
 word8Log tag = do
@@ -31,10 +33,17 @@ frameLog = do
 bytestringLog :: String -> Pipe ByteString ByteString GW ()
 bytestringLog tag = do
   bs <- await
-  lift $ writeLog $ bytestringDebug tag bs
+  lift $ writeDbg $ bytestringDebug tag bs
   yield bs
   bytestringLog tag
 
+
+showLog :: Show a => Pipe a a GW ()
+showLog = do
+  a <- await
+  lift $ writeLog $ show a
+  yield a
+  showLog
 
 tagger :: Monad m => HX.Tag -> Pipe a (HX.Tag, a) m ()
 tagger t = do
@@ -48,8 +57,14 @@ untagger t = do
   when (t == t') $ yield a
   untagger t
 
-hxDecoder :: Monad m => Pipe Word8 (HX.Tag, ByteString) m ()
-hxDecoder = aux HX.emptyStreamState
+bytestringUnpack :: Monad m => Pipe ByteString Word8 m ()
+bytestringUnpack = do
+  bs <- await
+  mapM_ (yield . c2w) (B.unpack bs)
+  bytestringUnpack
+
+hxDecoder :: Monad m => Pipe ByteString (HX.Tag, ByteString) m ()
+hxDecoder = bytestringUnpack >-> aux HX.emptyStreamState
   where
   aux ss = do
      b <- await
@@ -67,29 +82,49 @@ hxEncoder = do
     Right padded -> yield (HX.encode t padded)
   hxEncoder
 
+type KeySalt = ByteString
+
 commsecEncoder :: KeySalt -> Pipe ByteString ByteString GW ()
 commsecEncoder ks = do
-  lift (writeLog ("created commsecEncoder with ks " ++ show ks))
-  aux (commsecEncode ks)
+  case mkContextOut Small ks of
+    Just ctx -> do
+      lift (writeLog ("created commsecEncoder with ks " ++ show ks))
+      aux ctx
+    Nothing -> lift (writeErr "FATAL: Failed to create GEC encode context")
   where
-  aux e = do
+  aux ctx = do
     pt <- await
-    let (e', er) = commsec_encode_run e pt
-    case er of
-      Left err -> lift (writeErr (show err))
-      Right ct -> yield ct
-    aux e'
+    case encode ctx pt of
+      Just (ctx', ct) -> yield ct >> aux ctx'
+      Nothing -> lift (writeErr "GEC encode failed") >> aux ctx
 
 commsecDecoder :: KeySalt -> Pipe ByteString ByteString GW ()
 commsecDecoder ks = do
-  lift (writeLog ("created commsecDecoder with ks " ++ show ks))
-  aux (commsecDecode ks)
+  case mkContextIn Small ks of
+    Just ctx -> do
+      lift (writeLog ("created commsecDecoder with ks " ++ show ks))
+      aux ctx
+    Nothing -> lift (writeErr "FATAL: failed to create GEC decode context")
   where
-  aux d = do
+  aux ctx = do
     ct <- await
-    let (d', dr) = commsec_decode_run d ct
-    case dr of
-      Left err -> lift (writeErr (show err))
-      Right pt -> yield pt
-    aux d'
+    case decode ctx ct of
+      Just (ctx', pt) -> yield pt >> aux ctx'
+      Nothing -> lift (writeErr "GEC decode failed") >> aux ctx
 
+padder :: Integer -> Pipe ByteString ByteString GW ()
+padder l = do
+  b <- await
+  case bytestringPad l b of
+    Left err -> lift (writeErr err)
+    Right padded -> yield padded
+  padder l
+
+unpadder :: Integer -> Pipe ByteString ByteString GW ()
+unpadder l = do
+  a <- await
+  let (s,e) = B.splitAt (fromInteger l) a
+  case B.all (== '\0') e of
+    True -> yield s
+    False -> lift (writeErr "unpadder error: tail contained nonzeroes")
+  unpadder l

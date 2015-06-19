@@ -1,16 +1,16 @@
 
 module Main where
 
-import SMACCMPilot.Datalink.Client
+import SMACCMPilot.Datalink.Client.Loopback
 import SMACCMPilot.Datalink.Client.Opts
-import SMACCMPilot.Commsec.Keys
+import SMACCMPilot.Commsec.SymmetricKey
 
 import System.Environment (getArgs)
 import System.Console.GetOpt
 import System.Exit
 import System.IO
 
-import Ivory.Tower.Compile.Options
+import Ivory.Tower.Options
 import Ivory.Tower.Config
 
 main :: IO ()

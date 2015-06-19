@@ -7,26 +7,34 @@ module SMACCMPilot.Hardware.Tests.Serialize
   , magSender
   , baroSender
   , positionSender
+  , sampleSender
+  , Sender
   , serializeTowerDeps
   , rateDivider
   ) where
 
 import Ivory.Language
+import Ivory.Stdlib
 import Ivory.Tower
 
 import Data.Char (ord)
 
-import SMACCMPilot.Hardware.Types.Accelerometer ()
-import SMACCMPilot.Hardware.Types.Gyroscope ()
-import SMACCMPilot.Hardware.Types.Magnetometer ()
-import SMACCMPilot.Hardware.Types.Barometer ()
+import Ivory.Tower.HAL.Bus.Interface
+import SMACCMPilot.Comm.Ivory.Types.AccelerometerSample ()
+import SMACCMPilot.Comm.Ivory.Types.GyroscopeSample ()
+import SMACCMPilot.Comm.Ivory.Types.MagnetometerSample ()
+import SMACCMPilot.Comm.Ivory.Types.BarometerSample ()
+import SMACCMPilot.Comm.Ivory.Types (typeModules)
 import SMACCMPilot.Hardware.GPS.Types ()
+import SMACCMPilot.Hardware.Tests.Platforms
 
 import qualified SMACCMPilot.Datalink.HXStream.Ivory as HX
 import Ivory.Serialize
 
 serializeTowerDeps :: Tower e ()
 serializeTowerDeps = do
+  mapM_ towerDepends typeModules
+  mapM_ towerModule typeModules
   towerDepends serializeModule
   towerModule  serializeModule
   mapM_ towerArtifact serializeArtifacts
@@ -48,72 +56,33 @@ rateDivider r c = do
           (store st (s + 1))
   return (snd c')
 
-gyroSender :: ChanOutput (Struct "gyroscope_sample")
-           -> ChanInput (Stored Uint8)
-           -> Monitor e ()
-gyroSender c out = do
-  (buf :: Ref Global (Array 26 (Stored Uint8))) <- state "gyro"
-  handler c "gyro_sender" $ do
-    e <- emitter out (26*2 + 3)
-    callback $ \s -> noReturn $ do
-      packInto buf 0 s
-      HX.encode tag (constRef buf) (emitV e)
-  where
-  tag = tagChar 'g'
+type Sender e a = ChanOutput a -> BackpressureTransmit ConsoleBuffer (Stored IBool) -> Monitor e ()
 
-accelSender :: ChanOutput (Struct "accelerometer_sample")
-            -> ChanInput (Stored Uint8)
-            -> Monitor e ()
-accelSender c out = do
-  (buf :: Ref Global (Array 26 (Stored Uint8))) <- state "accel"
-  handler c "accel_sender" $ do
-    e <- emitter out (26*2 + 3)
-    callback $ \s -> noReturn $ do
-      packInto buf 0 s
-      HX.encode tag (constRef buf) (emitV e)
-  where
-  tag = tagChar 'a'
+sampleSender :: (ANat len, IvoryArea a, IvoryZero a, Packable a)
+             => Char
+             -> Proxy len
+             -> Sender e a
+sampleSender tag len c out = do
+  buf <- stateInit "buf" $ izerolen len
+  handler c "sender" $ do
+    e <- emitter (backpressureTransmit out) 1
+    callback $ \ sample -> do
+      packInto buf 0 sample
+      str <- local izero
+      HX.encodeString (fromIntegral $ ord tag) (constRef buf) str
+      emit e $ constRef str
 
-magSender :: ChanOutput (Struct "magnetometer_sample")
-            -> ChanInput (Stored Uint8)
-            -> Monitor e ()
-magSender c out = do
-  (buf :: Ref Global (Array 22 (Stored Uint8))) <- state "mag"
-  handler c "mag_sender" $ do
-    e <- emitter out (22*2 + 3)
-    callback $ \s -> noReturn $ do
-      packInto buf 0 s
-      HX.encode tag (constRef buf) (emitV e)
-  where
-  tag = tagChar 'm'
+gyroSender :: Sender e (Struct "gyroscope_sample")
+gyroSender = sampleSender 'g' (Proxy :: Proxy 27)
 
-baroSender :: ChanOutput (Struct "barometer_sample")
-            -> ChanInput (Stored Uint8)
-            -> Monitor e ()
-baroSender c out = do
-  (buf :: Ref Global (Array 18 (Stored Uint8))) <- state "baro"
-  handler c "baro_sender" $ do
-    e <- emitter out (18*2 + 3)
-    callback $ \s -> noReturn $ do
-      packInto buf 0 s
-      HX.encode tag (constRef buf) (emitV e)
-  where
-  tag = tagChar 'b'
+accelSender :: Sender e (Struct "accelerometer_sample")
+accelSender = sampleSender 'a' (Proxy :: Proxy 26)
 
-positionSender :: ChanOutput (Struct "position")
-               -> ChanInput (Stored Uint8)
-               -> Monitor p ()
-positionSender pos out = do
-  (buf :: Ref Global (Array 46 (Stored Uint8))) <- state "pos_ser_buf"
-  handler pos "position_serialize" $ do
-    e <- emitter out (46*2+3)
-    callback $ \p -> noReturn $ do
-      packInto buf 0 p
-      HX.encode tag (constRef buf) (emitV e)
-  where
-  tag = tagChar 'p'
+magSender :: Sender e (Struct "magnetometer_sample")
+magSender = sampleSender 'm' (Proxy :: Proxy 23)
 
+baroSender :: Sender e (Struct "barometer_sample")
+baroSender = sampleSender 'b' (Proxy :: Proxy 18)
 
-
-tagChar :: Char -> Uint8
-tagChar = fromIntegral . ord
+positionSender :: Sender e (Struct "position")
+positionSender = sampleSender 'p' (Proxy :: Proxy 46)

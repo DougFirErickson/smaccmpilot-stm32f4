@@ -1,13 +1,16 @@
 IVORY_REPO ?= ../../../ivory
 TOWER_REPO ?= ../../../tower
 BSP_REPO ?= ../../../ivory-tower-stm32
+POSIX_REPO ?= ../../../ivory-tower-posix
+GEC_REPO ?= ../../../gec
+ODROID_BSP_REPO ?= ../../../tower-camkes-odroid
+SMACCMPILOT_REPO ?= ..
+include ../../Makefile.sandbox
 
 IVORY_FLAGS ?= --const-fold
 
-default:
-	cabal build
-
-test: psas-recording-ivory-test
+# test: psas-recording-ivory-test
+test: all-sensors-ins-test
 test: test-fmu24
 
 test-fmu17: IVORY_FLAGS += --conf-file=fmu17.conf
@@ -37,34 +40,35 @@ px4-sensor-fusion-test:
 px4-sensor-fusion-test-clean:
 	-rm -rf px4-sensor-fusion-test
 
-.PHONY: create-sandbox
-create-sandbox:
-	cabal sandbox init
-	cabal sandbox add-source $(IVORY_REPO)/ivory
-	cabal sandbox add-source $(IVORY_REPO)/ivory-artifact
-	cabal sandbox add-source $(IVORY_REPO)/ivory-backend-c
-	cabal sandbox add-source $(IVORY_REPO)/ivory-hw
-	cabal sandbox add-source $(IVORY_REPO)/ivory-opts
-	cabal sandbox add-source $(IVORY_REPO)/ivory-serialize
-	cabal sandbox add-source $(IVORY_REPO)/ivory-stdlib
-	cabal sandbox add-source $(TOWER_REPO)/tower
-	cabal sandbox add-source $(TOWER_REPO)/tower-config
-	cabal sandbox add-source $(BSP_REPO)/ivory-bsp-stm32
-	cabal sandbox add-source $(BSP_REPO)/ivory-bsp-tests
-	cabal sandbox add-source $(BSP_REPO)/ivory-freertos-bindings
-	cabal sandbox add-source $(BSP_REPO)/tower-freertos-stm32
-	cabal sandbox add-source ../smaccm-fragment
-	cabal sandbox add-source ../smaccm-commsec
-	cabal sandbox add-source ../smaccm-datalink
-	cabal sandbox add-source ../smaccm-mavlink
-	cabal sandbox add-source ../ivory-px4-hw
-	cabal install --dependencies-only
+.PHONY: all-sensors-ins-test
+all-sensors-ins-test:
+	cabal run all-sensors-ins-test-gen -- --src-dir=$@ --no-sanity-check $(IVORY_FLAGS)
+	make -C $@
 
-clean: psas-recording-test-clean
+.PHONY: all-sensors-ins-test-clean
+all-sensors-ins-test-clean:
+	-rm -rf all-sensors-ins-test
 
-distclean:
-	-rm -rf dist
+.PHONY: ins-filter-test
+ins-filter-test:
+	cabal run ins-filter-test-gen -- --src-dir=$@ $(IVORY_FLAGS)
+	make -C $@
+	./$@/filter_test | python plotter.py
 
-clean-sandbox:
-	-rm -rf .cabal-sandbox
-	-rm cabal.sandbox.config
+.PHONY: ins-filter-test-clean
+ins-filter-test-clean:
+	-rm -rf ins-filter-test
+
+.PHONY: ins-mag-bias-test
+ins-mag-bias-test:
+	cabal run ins-mag-bias-test-gen -- --src-dir=$@ $(IVORY_FLAGS)
+	make -C $@
+	./$@/mag_bias_test
+
+.PHONY: ins-mag-bias-test-clean
+ins-mag-bias-test-clean:
+	-rm -rf ins-mag-bias-test
+
+clean: psas-recording-ivory-test-clean
+clean: px4-sensor-fusion-test-clean
+clean: all-sensors-ins-test-clean

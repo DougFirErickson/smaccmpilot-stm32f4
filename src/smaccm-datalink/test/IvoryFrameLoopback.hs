@@ -11,11 +11,11 @@ import Ivory.Stdlib
 
 import Ivory.Tower
 import Ivory.Tower.Config
-import Ivory.Tower.Compile
+import Ivory.Tower.HAL.Bus.Interface
+import Ivory.Tower.HAL.RingBuffer
 import Ivory.OS.FreeRTOS.Tower.STM32
 
 import Ivory.BSP.STM32.Driver.UART
-import Ivory.BSP.STM32.Driver.RingBuffer
 
 import qualified BSP.Tests.Platforms as BSP
 
@@ -24,31 +24,27 @@ import SMACCMPilot.Datalink.HXStream.Tower
 import SMACCMPilot.Datalink.HXStream.Ivory (hxstreamModule)
 
 main :: IO ()
-main = towerCompile p (app id)
-  where
-  p topts = do
-    cfg <- getConfig topts BSP.testPlatformParser
-    return $ stm32FreeRTOS BSP.testplatform_stm32 cfg
+main = compileTowerSTM32FreeRTOS BSP.testplatform_stm32 p (app id)
+  where p topts = getConfig topts BSP.testPlatformParser
 
 app :: (e -> BSP.TestPlatform)
     -> Tower e ()
 app totp = do
   tp <- fmap totp getEnv
   let cu = BSP.testplatform_uart tp
-  (o,i) <- uartTower tocc (BSP.testUARTPeriph cu) (BSP.testUARTPins cu)
-                     115200 (Proxy :: Proxy 256)
-  frame_loopback i o
+  (o, i) <- uartTower tocc (BSP.testUARTPeriph cu) (BSP.testUARTPins cu) 115200
+  frame_loopback o i
   where
   tocc = BSP.testplatform_clockconfig . totp
 
-frame_loopback :: ChanInput (Stored Uint8)
+frame_loopback :: BackpressureTransmit HXCyphertext (Stored IBool)
                -> ChanOutput (Stored Uint8)
                -> Tower p ()
 frame_loopback o i = do
   ctin <- channel
   ctout <- channel
-  hxstreamDecodeTower "test" i (fst ctin)
-  hxstreamEncodeTower "test" (snd ctout) o
+  airDataDecodeTower "test" i (fst ctin)
+  airDataEncodeTower "test" (snd ctout) o
 
   p <- period (Milliseconds 10)
 

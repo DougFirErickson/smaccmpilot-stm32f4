@@ -1,0 +1,7 @@
+.cabal-sandbox/
+cabal.sandbox.config
+dist/
+user.conf
+can_proxy_odroid_test/
+platform-fmu17/
+platform-fmu24/

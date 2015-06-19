@@ -10,14 +10,16 @@ import Ivory.Language
 import Ivory.Stdlib
 import Ivory.Tower
 import Numeric.Estimator.Model.Coordinate
-import Numeric.Estimator.Model.SensorFusion
 import Prelude hiding (mapM)
 import qualified SMACCMPilot.Hardware.GPS.Types as GPS
-import qualified SMACCMPilot.Hardware.Types.Magnetometer  as M
-import qualified SMACCMPilot.Hardware.Types.Accelerometer as A
-import qualified SMACCMPilot.Hardware.Types.Gyroscope     as G
-import qualified SMACCMPilot.Hardware.Types.Barometer     as B
+import qualified SMACCMPilot.Comm.Ivory.Types.MagnetometerSample  as M
+import qualified SMACCMPilot.Comm.Ivory.Types.AccelerometerSample as A
+import qualified SMACCMPilot.Comm.Ivory.Types.GyroscopeSample     as G
+import qualified SMACCMPilot.Comm.Ivory.Types.BarometerSample     as B
+import qualified SMACCMPilot.Comm.Ivory.Types.Xyz as XYZ
 import SMACCMPilot.INS.Ivory
+import SMACCMPilot.INS.SensorFusion
+import SMACCMPilot.Time
 
 changeUnits :: (Functor f, Functor g) => (x -> y) -> f (g x) -> f (g y)
 changeUnits f = fmap (fmap f)
@@ -27,8 +29,8 @@ accel :: (SafeCast IFloat to)
       -> Ivory eff (XYZ to)
 accel sample = fmap (fmap safeCast)
              $ mapM deref
-             $ fmap ((sample ~> A.sample) !)
-             $ xyz 0 1 2
+             $ fmap ((sample ~> A.sample) ~>)
+             $ xyz XYZ.x XYZ.y XYZ.z
 
 gyro :: (Floating to, SafeCast IFloat to)
       => ConstRef s (Struct "gyroscope_sample")
@@ -36,8 +38,8 @@ gyro :: (Floating to, SafeCast IFloat to)
 gyro sample = changeUnits (* (pi / 180))
             $ fmap (fmap safeCast)
             $ mapM deref
-            $ fmap ((sample ~> G.sample) !)
-            $ xyz 0 1 2
+            $ fmap ((sample ~> G.sample) ~>)
+            $ xyz XYZ.x XYZ.y XYZ.z
 
 kalman_predict :: Def ('[ Ref s1 (Struct "kalman_state")
                         , Ref s2 (Struct "kalman_covariance")
@@ -70,8 +72,8 @@ mag :: (Num to, SafeCast IFloat to)
 mag sample = changeUnits (* 1000)
            $ fmap (fmap safeCast)
            $ mapM deref
-           $ fmap ((sample ~> M.sample) !)
-           $ xyz 0 1 2
+           $ fmap ((sample ~> M.sample) ~>)
+           $ xyz XYZ.x XYZ.y XYZ.z
 
 mag_measure :: Def ('[ Ref s1 (Struct "kalman_state")
                      , Ref s2 (Struct "kalman_covariance")
@@ -79,34 +81,18 @@ mag_measure :: Def ('[ Ref s1 (Struct "kalman_state")
 mag_measure = proc "mag_measure" $ \ state_vector covariance last_mag -> body $ do
   magMeasure state_vector covariance =<< mag last_mag
 
-pressure :: (Num to, SafeCast IFloat to)
-         => ConstRef s (Struct "barometer_sample")
-         -> Ivory eff to
-pressure sample = fmap (* 100)
-                $ fmap safeCast
-                $ deref
-                $ sample ~> B.pressure
-
-pressure_measure :: Def ('[ Ref s1 (Struct "kalman_state")
-                          , Ref s2 (Struct "kalman_covariance")
-                          , ConstRef s3 (Struct "barometer_sample")] :-> ())
-pressure_measure = proc "pressure_measure" $
-  \ state_vector covariance last_baro -> body $ do
-      pressureMeasure state_vector covariance =<< pressure last_baro
-
 init_filter :: Def ('[ Ref s1 (Struct "kalman_state")
                      , Ref s2 (Struct "kalman_covariance")
                      , ConstRef s3 (Struct "accelerometer_sample")
                      , ConstRef s4 (Struct "magnetometer_sample")
-                     , ConstRef s5 (Struct "barometer_sample")] :-> IBool)
+                     ] :-> IBool)
 init_filter = proc "init_filter" $
-  \ state_vector covariance last_accel last_mag last_baro -> body $ do
+  \ state_vector covariance last_accel last_mag -> body $ do
       magFail <- deref $ last_mag ~> M.samplefail
-      baroFail <- deref $ last_baro ~> B.samplefail
-      when (iNot magFail .&& iNot baroFail) $ do
+      when (iNot magFail) $ do
         acc <- accel last_accel
         mag' <- mag last_mag
-        kalmanInit state_vector covariance acc mag' =<< pressure last_baro
+        kalmanInit state_vector covariance acc mag'
         ret true
       ret false
 
@@ -122,15 +108,15 @@ sensorFusion :: ChanOutput (Struct "accelerometer_sample")
              -> ChanOutput (Struct "barometer_sample")
              -> ChanOutput (Struct "position")
              -> Tower e (ChanOutput (Struct "kalman_state"))
-sensorFusion accelSource gyroSource magSource baroSource _gpsSource = do
+sensorFusion accelSource gyroSource magSource _baroSource _gpsSource = do
   (stateSink, stateSource) <- channel
 
   mapM_ towerDepends
     [ GPS.gpsTypesModule
-    , A.accelerometerTypesModule
-    , G.gyroscopeTypesModule
-    , M.magnetometerTypesModule
-    , B.barometerTypesModule
+    , A.accelerometerSampleTypesModule
+    , G.gyroscopeSampleTypesModule
+    , M.magnetometerSampleTypesModule
+    , B.barometerSampleTypesModule
     ]
 
   towerDepends insTypesModule
@@ -140,7 +126,6 @@ sensorFusion accelSource gyroSource magSource baroSource _gpsSource = do
     monitorModuleDef $ do
       incl kalman_predict
       incl mag_measure
-      incl pressure_measure
       incl init_filter
 
     initialized <- state "initialized"
@@ -151,7 +136,6 @@ sensorFusion accelSource gyroSource magSource baroSource _gpsSource = do
     last_gyro <- stateInit "last_gyro" $ istruct [ G.samplefail .= ival true ]
     last_acc  <- stateInit "last_acc" $ istruct [ A.samplefail .= ival true ]
     last_mag <- stateInit "last_mag" $ istruct [ M.samplefail .= ival true ]
-    last_baro <- stateInit "last_baro" $ istruct [ B.samplefail .= ival true ]
 
     handler accelSource "accel" $ do
       stateEmit <- emitter stateSink 1
@@ -159,13 +143,13 @@ sensorFusion accelSource gyroSource magSource baroSource _gpsSource = do
         accelFail <- deref $ sample ~> A.samplefail
         unless accelFail $ do
           store (last_acc ~> A.samplefail) false
-          arrayMap $ \ i -> storeSum (last_acc ~> A.sample ! i) (sample ~> A.sample ! i)
+          xyzMap $ \ i -> storeSum (last_acc ~> A.sample ~> i) (sample ~> A.sample ~> i)
           refCopy (last_acc ~> A.time) (sample ~> A.time)
 
           ready <- deref initialized
           ifte_ ready
             (do
-              now <- deref $ last_acc ~> A.time
+              now <- fmap iTimeFromTimeMicros $ deref $ last_acc ~> A.time
               call_ kalman_predict state_vector covariance last_predict now last_acc last_gyro
               emit stateEmit $ constRef state_vector
             ) (do
@@ -173,10 +157,10 @@ sensorFusion accelSource gyroSource magSource baroSource _gpsSource = do
                                        covariance
                                        (constRef last_acc)
                                        (constRef last_mag)
-                                       (constRef last_baro)
               when done $ do
                 store initialized true
-                refCopy last_predict $ last_acc ~> A.time
+                t <- deref $ last_acc ~> A.time
+                store last_predict (iTimeFromTimeMicros t)
             )
 
     handler gyroSource "gyro" $ do
@@ -185,12 +169,12 @@ sensorFusion accelSource gyroSource magSource baroSource _gpsSource = do
         gyroFail <- deref $ sample ~> G.samplefail
         unless gyroFail $ do
           store (last_gyro ~> G.samplefail) false
-          arrayMap $ \ i -> storeSum (last_gyro ~> G.sample ! i) (sample ~> G.sample ! i)
+          xyzMap $ \ i -> storeSum (last_gyro ~> G.sample ~> i) (sample ~> G.sample ~> i)
           refCopy (last_gyro ~> G.time) (sample ~> G.time)
 
           ready <- deref initialized
           when ready $ do
-            now <- deref $ last_gyro ~> G.time
+            now <- fmap iTimeFromTimeMicros $ deref $ last_gyro ~> G.time
             call_ kalman_predict state_vector covariance last_predict now last_acc last_gyro
             emit stateEmit $ constRef state_vector
 
@@ -201,11 +185,12 @@ sensorFusion accelSource gyroSource magSource baroSource _gpsSource = do
         ready <- deref initialized
         when ready $ call_ mag_measure state_vector covariance $ constRef last_mag
 
-    handler baroSource "baro" $ callback $ \ sample -> do
-      failed <- deref $ sample ~> B.samplefail
-      unless failed $ do
-        refCopy last_baro sample
-        ready <- deref initialized
-        when ready $ call_ pressure_measure state_vector covariance $ constRef last_baro
-
   return stateSource
+
+  where
+  xyzMap :: (Label "xyz" (Stored IFloat) -> Ivory eff ()) -> Ivory eff ()
+  xyzMap f = do
+    f XYZ.x
+    f XYZ.y
+    f XYZ.z
+

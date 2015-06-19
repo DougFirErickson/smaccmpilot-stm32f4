@@ -11,7 +11,9 @@ defaults = {
     'baudrate': 115200,
     'dsrdtr': False,
     'rtscts': False,
-    'xonxoff': False }
+    'xonxoff': False,
+    'rawlog': None
+    }
 
 def display_numeric_list(l):
     return ' '.join('{0:9.4f}'.format(x) for x in l)
@@ -20,7 +22,7 @@ class Barometer(object):
     def __init__(self, binary):
         self.binary = binary
         try:
-            (ifail, sfail, pres, temp, t) = struct.unpack("<BBffQ", binary)
+            (ifail, sfail, pres, temp, t) = struct.unpack("!BBffQ", binary)
             self.ifail = ifail
             self.sfail = sfail
             self.pres  = pres
@@ -39,9 +41,10 @@ class Mag(object):
     def __init__(self, binary):
         self.binary = binary
         try:
-            (ifail, sfail, x, y, z, t) = struct.unpack("<BBfffQ", binary)
+            (ifail, sfail, cal, x, y, z, t) = struct.unpack("!BBBfffQ", binary)
             self.ifail = ifail
             self.sfail = sfail
+            self.cal   = cal
             self.x     = x
             self.y     = y
             self.z     = z
@@ -52,15 +55,15 @@ class Mag(object):
     def display(self):
         if self.errormsg:
             return self.errormsg
-        return ("Mag   %d %d x % 9.4f y % 9.4f z % 9.4f                micros %d" %
-            (self.ifail, self.sfail, self.x, self.y, self.z, self.t))
+        return ("Mag   %d %d x % 9.4f y % 9.4f z % 9.4f                cal %d micros %d" %
+            (self.ifail, self.sfail, self.x, self.y, self.z, self.cal, self.t))
 
 
 class Accel(object):
     def __init__(self, binary):
         self.binary = binary
         try:
-            (ifail, sfail, x, y, z, temp, t) = struct.unpack("<BBffffQ", binary)
+            (ifail, sfail, x, y, z, temp, t) = struct.unpack("!BBffffQ", binary)
             self.ifail = ifail
             self.sfail = sfail
             self.x     = x
@@ -81,7 +84,7 @@ class Fusion(object):
     def __init__(self, binary):
         self.binary = binary
         try:
-            fields = struct.unpack("<22f", binary)
+            fields = struct.unpack("!22f", binary)
             self.orient = fields[0:4]
             self.vel = fields[4:7]
             self.pos = fields[7:10]
@@ -104,9 +107,10 @@ class Gyro(object):
     def __init__(self, binary):
         self.binary = binary
         try:
-            (ifail, sfail, x, y, z, temp, t) = struct.unpack("<BBffffQ", binary)
+            (ifail, sfail, cal, x, y, z, temp, t) = struct.unpack("!BBBffffQ", binary)
             self.ifail = ifail
             self.sfail = sfail
+            self.cal   = cal
             self.x     = x
             self.y     = y
             self.z     = z
@@ -118,16 +122,16 @@ class Gyro(object):
     def display(self):
         if self.errormsg:
             return self.errormsg
-        return ("Gyro  %d %d x % 9.4f y % 9.4f z % 9.4f temp % 9.4f micros %d" %
-            (self.ifail, self.sfail, self.x, self.y, self.z, self.temp, self.t))
+        return ("Gyro  %d %d x % 9.4f y % 9.4f z % 9.4f temp % 9.4f cal %d micros %d" %
+            (self.ifail, self.sfail, self.x, self.y, self.z, self.temp, self.cal, self.t))
 
 class Position(object):
     def __init__(self, binary):
         self.binary = binary
         try:
-          ##  (ifail, sfail, x, y, z, t) = struct.unpack("<BBhhhQ", binary)
+          ##  (ifail, sfail, x, y, z, t) = struct.unpack("!BBhhhQ", binary)
             (fix, num_sv, dop, lat, lon, alt, vnorth, veast, vdown, vground, heading, t) = \
-                    struct.unpack("<BBfllllllLfQ", binary)
+                    struct.unpack("!BBfllllllLfQ", binary)
             self.fix        = fix
             self.num_sv     = num_sv
             self.dop        = dop
@@ -154,7 +158,7 @@ class PPM(object):
         self.binary = binary
         try:
             (c1, c2, c3, c4, c5, c6, c7, c8) = \
-                    struct.unpack("<HHHHHHHH", binary)
+                    struct.unpack("!HHHHHHHH", binary)
             self.c1 = c1
             self.c2 = c2
             self.c3 = c3
@@ -212,6 +216,11 @@ class SerialPortProvider(object):
         self.port = None
         self.exception = ""
 
+        if opts['rawlog']:
+            self.log = open(opts['rawlog'], 'w')
+        else:
+            self.log = None
+
         self.launch_opener()
 
     def alive(self):
@@ -262,7 +271,10 @@ class SerialPortProvider(object):
     def read(self, count):
         if self.alive():
             try:
-                return self.port.read(count)
+                b = self.port.read(count)
+                if self.log:
+                    self.log.write(b)
+                return b
             except serial.SerialException:
                 self.launch_opener()
         return []
@@ -322,6 +334,7 @@ if __name__ == "__main__":
     parser.add_option("--dsrdtr", action='store_true', default=defaults['dsrdtr'], help='enable dsrdtr')
     parser.add_option("--xonxoff", action='store_true', default=defaults['xonxoff'], help='enable xonxoff')
     parser.add_option("--debug", action='store_true', default=defaults['debug'], help='enable debug text')
+    parser.add_option("--rawlog", action='store', default=defaults['rawlog'], help='log output')
 
     opts, args = parser.parse_args()
 

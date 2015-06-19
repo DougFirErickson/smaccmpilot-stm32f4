@@ -8,32 +8,31 @@ module SMACCMPilot.Hardware.LSM303D.SPI
   , lsm303dDefaultConf
   ) where
 
+import Data.Word
+import Ivory.BSP.STM32.Driver.SPI
 import Ivory.Language
 import Ivory.Stdlib
 import Ivory.Tower
-
-import Data.Word
+import Ivory.Tower.HAL.Bus.Interface
+import qualified SMACCMPilot.Comm.Ivory.Types.AccelerometerSample as A
+import qualified SMACCMPilot.Comm.Ivory.Types.MagnetometerSample as M
+import qualified SMACCMPilot.Comm.Ivory.Types.Xyz as XYZ
+import SMACCMPilot.Time
 import Numeric (showHex)
-
-import Ivory.BSP.STM32.Driver.SPI
-
-import qualified SMACCMPilot.Hardware.Types.Accelerometer as A
-import qualified SMACCMPilot.Hardware.Types.Magnetometer  as M
 import SMACCMPilot.Hardware.LSM303D.Regs
 
 lsm303dSPISensorManager :: Config
-                        -> ChanInput  (Struct "spi_transaction_request")
-                        -> ChanOutput (Struct "spi_transaction_result")
+                        -> BackpressureTransmit (Struct "spi_transaction_request") (Struct "spi_transaction_result")
                         -> ChanOutput (Stored ITime)
                         -> ChanInput  (Struct "magnetometer_sample")
                         -> ChanInput  (Struct "accelerometer_sample")
                         -> SPIDeviceHandle
                         -> Tower e ()
-lsm303dSPISensorManager conf req_chan res_chan init_chan mag_chan accel_chan h = do
-  towerModule  M.magnetometerTypesModule
-  towerDepends M.magnetometerTypesModule
-  towerModule  A.accelerometerTypesModule
-  towerDepends A.accelerometerTypesModule
+lsm303dSPISensorManager conf (BackpressureTransmit req_chan res_chan) init_chan mag_chan accel_chan h = do
+  towerModule  M.magnetometerSampleTypesModule
+  towerDepends M.magnetometerSampleTypesModule
+  towerModule  A.accelerometerSampleTypesModule
+  towerDepends A.accelerometerSampleTypesModule
 
   p <- period (Milliseconds 20) -- 50hz
   monitor "lsm303dSensorManager" $ do
@@ -107,8 +106,8 @@ lsm303dSPISensorManager conf req_chan res_chan init_chan mag_chan accel_chan h =
 
           comment "record time and emit sample"
           r_time <- getTime
-          store (mag_s ~> M.time) r_time
-          store (acc_s ~> A.time) r_time
+          store (mag_s ~> M.time) (timeMicrosFromITime r_time)
+          store (acc_s ~> A.time) (timeMicrosFromITime r_time)
           emit mag_e (constRef mag_s)
           emit acc_e (constRef acc_s)
 
@@ -130,43 +129,35 @@ convert_mag_sample :: Config
                    -> Ref s1 (Struct "spi_transaction_result")
                    -> Ref s2 (Struct "magnetometer_sample")
                    -> Ivory eff ()
-convert_mag_sample c res s = convert_sample scale res (s ~> M.sample)
-  where
-  scale :: IFloat -> IFloat
-  scale v = v * (fromInteger (magPeakToPeakGauss c))
-              / (fromInteger (2 ^ (16 :: Int)))
+convert_mag_sample c res s = convert_sample (magSensitivityGauss c) res (s ~> M.sample)
 
 convert_acc_sample :: Config
                    -> Ref s1 (Struct "spi_transaction_result")
                    -> Ref s2 (Struct "accelerometer_sample")
                    -> Ivory eff ()
-convert_acc_sample c res s = convert_sample scale res (s ~> A.sample)
-  where
-  scale :: IFloat -> IFloat
-  scale v = v * (fromRational (accPeakToPeakMSS c))
-              / (fromInteger (2 ^ (16 :: Int)))
+convert_acc_sample c res s = convert_sample (accelSensitivityMSS c) res (s ~> A.sample)
 
-convert_sample :: (IFloat -> IFloat)
+convert_sample :: IFloat
                -> Ref s1 (Struct "spi_transaction_result")
-               -> Ref s2 (Array 3 (Stored IFloat))
+               -> Ref s2 (Struct "xyz")
                -> Ivory eff ()
 convert_sample scale res s = do
   f ((res ~> rx_buf) ! 1)
     ((res ~> rx_buf) ! 2)
-    (s ! 0)
+    (s ~> XYZ.x)
   f ((res ~> rx_buf) ! 3)
     ((res ~> rx_buf) ! 4)
-    (s ! 1)
+    (s ~> XYZ.y)
   f ((res ~> rx_buf) ! 5)
     ((res ~> rx_buf) ! 6)
-    (s ! 2)
+    (s ~> XYZ.z)
   where
   f loref hiref resref = do
     lo <- deref loref
     hi <- deref hiref
     (u16 :: Uint16) <- assign ((safeCast lo) + ((safeCast hi) `iShiftL` 8))
     (i16 :: Sint16) <- assign (twosComplementCast u16)
-    (r :: IFloat)   <- assign (scale (safeCast i16))
+    (r :: IFloat)   <- assign (scale * safeCast i16)
     store resref r
 
 

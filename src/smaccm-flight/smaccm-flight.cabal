@@ -1,0 +1,150 @@
+name:                smaccm-flight
+version:             0.1.0.0
+license:             BSD3
+license-file:        LICENSE
+author:              Pat Hickey
+maintainer:          pat@galois.com
+build-type:          Simple
+cabal-version:       >=1.10
+
+library
+  hs-source-dirs:      src
+  exposed-modules:     SMACCMPilot.Flight.Control,
+                       SMACCMPilot.Flight.Control.Altitude,
+                       SMACCMPilot.Flight.Control.Altitude.Estimator,
+                       SMACCMPilot.Flight.Control.Altitude.Filter,
+                       SMACCMPilot.Flight.Control.Altitude.PositionPID,
+                       SMACCMPilot.Flight.Control.Altitude.ThrottleTracker,
+                       SMACCMPilot.Flight.Control.Altitude.ThrottleUI,
+                       SMACCMPilot.Flight.Control.Altitude.ThrustPID,
+                       SMACCMPilot.Flight.Control.Attitude.Angle,
+                       SMACCMPilot.Flight.Control.Attitude.HeadingControl,
+                       SMACCMPilot.Flight.Control.Attitude.PitchRoll,
+                       SMACCMPilot.Flight.Control.Attitude.Stabilize,
+                       SMACCMPilot.Flight.Control.Attitude.YawRate,
+                       SMACCMPilot.Flight.Control.Attitude.YawUI,
+                       SMACCMPilot.Flight.Control.PID,
+                       SMACCMPilot.Flight.Control.StateDerivativePID,
+                       SMACCMPilot.Flight.Control.StatePID,
+                       SMACCMPilot.Flight.Control.Yaw,
+                       SMACCMPilot.Flight.Datalink,
+                       SMACCMPilot.Flight.Datalink.CAN,
+                       SMACCMPilot.Flight.Datalink.CAN.TestServer,
+                       SMACCMPilot.Flight.Datalink.CAN.TestProxy,
+                       SMACCMPilot.Flight.Datalink.CAN.TestProxyODROID,
+                       SMACCMPilot.Flight.Datalink.ControllableVehicle,
+                       SMACCMPilot.Flight.Datalink.Commsec,
+                       SMACCMPilot.Flight.Datalink.UART,
+                       SMACCMPilot.Flight.Datalink.TestApp,
+                       SMACCMPilot.Flight.Light,
+                       SMACCMPilot.Flight.Motors,
+                       SMACCMPilot.Flight.Motors.Decoder,
+                       SMACCMPilot.Flight.Motors.Mixing,
+                       SMACCMPilot.Flight.Platform,
+                       SMACCMPilot.Flight.Sensors,
+                       SMACCMPilot.Flight.Sensors.TestApp,
+                       SMACCMPilot.Flight.Types.MaybeFloat,
+                       SMACCMPilot.Flight.UserInput,
+                       SMACCMPilot.Flight.UserInput.PPM,
+                       SMACCMPilot.Flight.UserInput.PPM.ArmingMachine,
+                       SMACCMPilot.Flight.UserInput.PPM.Decode,
+                       SMACCMPilot.Flight.UserInput.PPM.ModeSwitch,
+                       SMACCMPilot.Flight.UserInput.PPM.TestApp,
+                       SMACCMPilot.Flight.UserInput.TestApp
+  build-depends:       base >=4.6,
+                       ivory >=0.1,
+                       ivory-px4-hw >=0.1,
+                       ivory-serialize >=0.1,
+                       ivory-stdlib >=0.1,
+                       tower >=0.9,
+                       tower-hal,
+                       tower-config,
+                       tower-camkes-odroid,
+                       tower-freertos-stm32,
+                       ivory-bsp-stm32,
+                       smaccm-commsec,
+                       smaccm-datalink,
+                       smaccm-comm-schema-tower,
+                       smaccm-ins
+  default-language:    Haskell2010
+  ghc-options:         -Wall
+
+executable             can-server-test-gen
+  main-is:             CANServer.hs
+  hs-source-dirs:      tests
+  build-depends:       base >= 4.6,
+                       tower >= 0.9,
+                       tower-config,
+                       tower-freertos-stm32,
+                       smaccm-flight
+  default-language:    Haskell2010
+  ghc-options:         -Wall
+
+executable             can-proxy-test-gen
+  main-is:             CANProxy.hs
+  hs-source-dirs:      tests
+  build-depends:       base >= 4.6,
+                       tower >= 0.9,
+                       tower-config,
+                       tower-freertos-stm32,
+                       smaccm-flight
+  default-language:    Haskell2010
+  ghc-options:         -Wall
+
+executable             can-proxy-odroid-test-gen
+  main-is:             CANProxyODROID.hs
+  hs-source-dirs:      tests
+  build-depends:       base >= 4.6,
+                       tower >= 0.9,
+                       tower-aadl,
+                       tower-camkes-odroid,
+                       tower-config,
+                       smaccm-commsec,
+                       smaccm-datalink,
+                       smaccm-flight
+  default-language:    Haskell2010
+  ghc-options:         -Wall
+
+executable             comm-only-test-gen
+  main-is:             CommOnly.hs
+  hs-source-dirs:      tests
+  build-depends:       base >= 4.6,
+                       tower >= 0.9,
+                       tower-config,
+                       tower-freertos-stm32,
+                       smaccm-flight
+  default-language:    Haskell2010
+  ghc-options:         -Wall
+
+executable             ppm-test-gen
+  main-is:             PPM.hs
+  hs-source-dirs:      tests
+  build-depends:       base >= 4.6,
+                       tower >= 0.9,
+                       tower-config,
+                       tower-freertos-stm32,
+                       smaccm-flight
+  default-language:    Haskell2010
+  ghc-options:         -Wall
+
+executable             ui-test-gen
+  main-is:             UI.hs
+  hs-source-dirs:      tests
+  build-depends:       base >= 4.6,
+                       tower >= 0.9,
+                       tower-config,
+                       tower-freertos-stm32,
+                       smaccm-flight
+  default-language:    Haskell2010
+  ghc-options:         -Wall
+
+executable             sensors-test-gen
+  main-is:             Sensors.hs
+  hs-source-dirs:      tests
+  build-depends:       base >= 4.6,
+                       tower >= 0.9,
+                       tower-config,
+                       tower-freertos-stm32,
+                       smaccm-flight
+  default-language:    Haskell2010
+  ghc-options:         -Wall

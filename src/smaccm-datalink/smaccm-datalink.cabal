@@ -24,31 +24,28 @@ library
                        SMACCMPilot.Datalink.Client.Queue,
                        SMACCMPilot.Datalink.Client.Pipes,
                        SMACCMPilot.Datalink.Client.Serial,
-                       SMACCMPilot.Datalink.Client.Repl
+                       SMACCMPilot.Datalink.Client.Repl,
+                       SMACCMPilot.Datalink.Client.Loopback,
+                       SMACCMPilot.Datalink.Mode
+                       SMACCMPilot.Datalink.Loopback
   build-depends:       base >= 4.6,
                        async,
                        bytestring,
-                       cereal,
-                       cipher-aes,
-                       crypto-cipher-types,
-                       containers,
                        dlist,
                        haskeline,
                        monadLib,
                        pipes,
-                       process,
                        random,
-                       serial,
                        stm,
                        transformers,
                        unix,
+                       gec,
                        ivory,
-                       ivory-hw,
                        ivory-serialize,
                        ivory-stdlib,
-                       ivory-artifact,
-                       tower-config,
                        tower,
+                       tower-config,
+                       tower-hal,
                        smaccm-commsec
   hs-source-dirs:      src
   default-language:    Haskell2010
@@ -60,10 +57,25 @@ executable smaccm-datalink-ivory-frameloopback-test-gen
   build-depends:       base,
                        ivory,
                        ivory-stdlib,
-                       ivory-artifact,
-                       ivory-backend-c,
+                       tower,
+                       tower-hal,
+                       tower-config,
+                       tower-freertos-stm32,
+                       ivory-bsp-stm32,
+                       ivory-bsp-tests,
+                       smaccm-datalink,
+                       smaccm-commsec
+  ghc-options:         -Wall
+
+executable smaccm-datalink-ivory-commsecloopback-test-gen-stm32
+  main-is:             IvoryCommsecLoopbackSTM32.hs
+  hs-source-dirs:      test
+  build-depends:       base,
+                       ivory,
+                       ivory-stdlib,
                        tower,
                        tower-config,
+                       tower-hal,
                        tower-freertos-stm32,
                        ivory-bsp-stm32,
                        ivory-bsp-tests,
@@ -71,19 +83,17 @@ executable smaccm-datalink-ivory-frameloopback-test-gen
                        smaccm-datalink
   ghc-options:         -Wall
 
-executable smaccm-datalink-ivory-commsecloopback-test-gen
-  main-is:             IvoryCommsecLoopback.hs
+executable smaccm-datalink-ivory-commsecloopback-test-gen-odroid
+  main-is:             IvoryCommsecLoopbackODROID.hs
   hs-source-dirs:      test
   build-depends:       base,
                        ivory,
                        ivory-stdlib,
-                       ivory-artifact,
-                       ivory-backend-c,
                        tower,
                        tower-config,
-                       tower-freertos-stm32,
-                       ivory-bsp-stm32,
-                       ivory-bsp-tests,
+                       tower-hal,
+                       tower-aadl,
+                       tower-camkes-odroid,
                        smaccm-commsec,
                        smaccm-datalink
   ghc-options:         -Wall
@@ -96,7 +106,6 @@ executable smaccm-datalink-native-serial-test
   build-depends:        base >= 4.6,
                         bytestring,
                         serialport,
-                        dlist,
                         smaccm-datalink
   default-language:     Haskell2010
 
